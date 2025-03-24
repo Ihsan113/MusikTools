@@ -88,6 +88,7 @@
       justify-content: center;
       gap: 16px;
       margin-top: 24px;
+      flex-wrap: wrap;
     }
     button {
       padding: 14px 28px;
@@ -110,6 +111,13 @@
     }
     button:active {
       transform: scale(0.95);
+    }
+    /* Responsive buttons */
+    @media (max-width: 600px) {
+      .controls button {
+        flex: 1 1 45%;
+        margin: 5px;
+      }
     }
     /* Custom progress bar */
     .progress-container {
@@ -167,8 +175,10 @@
     <div class="controls">
       <button id="play-btn">▶️ Play</button>
       <button id="pause-btn">⏸ Pause</button>
-      <!-- Tombol Dolby untuk mengaktifkan efek -->
+      <!-- Tombol Dolby untuk mengaktifkan efek (jangan di sentuh) -->
       <button id="dolby-btn">Dolby Off</button>
+      <!-- Tombol Loop untuk mengaktifkan putar ulang lagu secara terus menerus -->
+      <button id="loop-btn">Loop Off</button>
     </div>
     <div class="progress-container">
       <input type="range" id="progress-bar" class="progress-bar" min="0" max="100" value="0">
@@ -178,11 +188,12 @@
     <canvas id="visualizer-canvas"></canvas>
     <audio id="audio-player"></audio>
   </div>
-
+  
   <script>
     let files = [];
     let currentIndex = 0;
     let dolbyEnabled = false;
+    let loopEnabled = false;
     let animationId;
     const fileSelector = document.getElementById('file-selector');
     const playlist = document.getElementById('playlist');
@@ -190,6 +201,7 @@
     const playBtn = document.getElementById('play-btn');
     const pauseBtn = document.getElementById('pause-btn');
     const dolbyBtn = document.getElementById('dolby-btn');
+    const loopBtn = document.getElementById('loop-btn');
     const progressBar = document.getElementById('progress-bar');
     const timeDisplay = document.getElementById('time-display');
     const canvas = document.getElementById('visualizer-canvas');
@@ -199,40 +211,51 @@
     let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     let sourceNode = audioCtx.createMediaElementSource(audioPlayer);
 
-    // Node efek untuk Dolby dengan penyesuaian untuk audio yang HD, jelas, hidup, dan volume tinggi
+    // Buat node efek baru: stereo panner dengan LFO untuk modulasinya
+    let stereoPanner = audioCtx.createStereoPanner();
+    let lfo = audioCtx.createOscillator();
+    let lfoGain = audioCtx.createGain();
+    lfo.frequency.value = 0.25; // frekuensi modulator (gerakan lambat)
+    lfoGain.gain.value = 0.5;   // amplitudo modulator
+    lfo.connect(lfoGain);
+    lfoGain.connect(stereoPanner.pan);
+    lfo.start();
+
+    // Rangkaian filter Dolby baru:
+    // HighShelf, Peaking, Clarity, LowShelf
     let highShelfFilter = audioCtx.createBiquadFilter();
     highShelfFilter.type = 'highshelf';
     highShelfFilter.frequency.value = 3000;
-    highShelfFilter.gain.value = 18; // Gain high-end yang tinggi
+    highShelfFilter.gain.value = 12; // gain lebih ringan
 
     let peakingFilter = audioCtx.createBiquadFilter();
     peakingFilter.type = 'peaking';
-    peakingFilter.frequency.value = 1000;
+    peakingFilter.frequency.value = 1200;
     peakingFilter.Q.value = 1;
-    peakingFilter.gain.value = 8; // Menonjolkan mid-range
+    peakingFilter.gain.value = 6; // sedikit penonjolan mid-range
 
-    // Filter tambahan untuk menambah detail dan kejernihan
     let clarityFilter = audioCtx.createBiquadFilter();
     clarityFilter.type = 'peaking';
     clarityFilter.frequency.value = 2500;
     clarityFilter.Q.value = 1;
-    clarityFilter.gain.value = 4; // Memberikan sentuhan ekstra pada high-mid
+    clarityFilter.gain.value = 4; // sentuhan ekstra untuk kejelasan
 
     let lowShelfFilter = audioCtx.createBiquadFilter();
     lowShelfFilter.type = 'lowshelf';
     lowShelfFilter.frequency.value = 150;
-    lowShelfFilter.gain.value = 9; // Bass lebih menggelegar
+    lowShelfFilter.gain.value = 9; // bass yang kuat
 
+    // Compressor untuk menstabilkan dinamika
     let compressor = audioCtx.createDynamicsCompressor();
-    compressor.threshold.value = -30; // Lebih sensitif
+    compressor.threshold.value = -30;
     compressor.knee.value = 30;
-    compressor.ratio.value = 18; // Punch yang kuat
-    compressor.attack.value = 0.001; // Respons sangat cepat
-    compressor.release.value = 0.2; // Pelepasan singkat
+    compressor.ratio.value = 18;
+    compressor.attack.value = 0.001;
+    compressor.release.value = 0.2;
 
-    // Gain node untuk boosting volume output
+    // Gain node untuk boosting volume output (naikkan sedikit saat Dolby aktif)
     let gainNode = audioCtx.createGain();
-    gainNode.gain.value = 1.8; // Volume ditingkatkan
+    gainNode.gain.value = 1.8;
 
     // Analyser untuk visualisasi
     let analyser = audioCtx.createAnalyser();
@@ -240,16 +263,15 @@
     let bufferLength = analyser.frequencyBinCount;
     let dataArray = new Uint8Array(bufferLength);
 
-    // Untuk visualisasi, sambungkan source ke analyser dan destination secara default
+    // Koneksi default (tanpa efek Dolby)
     sourceNode.connect(analyser);
     analyser.connect(audioCtx.destination);
 
-    // Animasi visualizer yang berjalan terus-menerus
+    // Animasi visualizer
     function animateVisualizer() {
       animationId = requestAnimationFrame(animateVisualizer);
       analyser.getByteFrequencyData(dataArray);
       
-      // Bersihkan canvas dengan efek trail
       canvasCtx.fillStyle = "rgba(0, 0, 0, 0.2)";
       canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
       
@@ -326,7 +348,7 @@
     playBtn.addEventListener('click', () => playAudio());
     pauseBtn.addEventListener('click', () => audioPlayer.pause());
 
-    // Tombol Dolby untuk mengaktifkan efek audio tambahan
+    // Tombol Dolby: saat diaktifkan, gunakan rangkaian efek baru
     dolbyBtn.addEventListener('click', () => {
       dolbyEnabled = !dolbyEnabled;
       // Putuskan semua koneksi
@@ -335,29 +357,42 @@
       peakingFilter.disconnect();
       clarityFilter.disconnect();
       lowShelfFilter.disconnect();
+      stereoPanner.disconnect();
       compressor.disconnect();
       gainNode.disconnect();
       analyser.disconnect();
       
       if (dolbyEnabled) {
-        // Rangkaian efek Dolby: source -> highShelf -> peaking -> clarityFilter -> lowShelf -> compressor -> gain -> analyser -> destination
+        // Rangkaian efek Dolby baru:
+        // source -> highShelf -> peaking -> clarity -> lowShelf -> stereoPanner (dengan LFO) -> compressor -> gain -> analyser -> destination
         sourceNode.connect(highShelfFilter);
         highShelfFilter.connect(peakingFilter);
         peakingFilter.connect(clarityFilter);
         clarityFilter.connect(lowShelfFilter);
-        lowShelfFilter.connect(compressor);
+        lowShelfFilter.connect(stereoPanner);
+        stereoPanner.connect(compressor);
         compressor.connect(gainNode);
+        // Naikkan volume output sedikit saat Dolby aktif
+        gainNode.gain.value = 2.0;
         gainNode.connect(analyser);
         analyser.connect(audioCtx.destination);
         dolbyBtn.textContent = "Dolby On";
       } else {
-        // Koneksi standar tanpa efek Dolby
+        // Koneksi standar tanpa efek Dolby: source -> analyser -> destination
+        gainNode.gain.value = 1.8;
         sourceNode.connect(analyser);
         analyser.connect(audioCtx.destination);
         dolbyBtn.textContent = "Dolby Off";
       }
     });
 
+    // Tombol Loop
+    loopBtn.addEventListener('click', () => {
+      loopEnabled = !loopEnabled;
+      loopBtn.textContent = loopEnabled ? "Loop On" : "Loop Off";
+    });
+
+    // Update progress bar dan waktu
     audioPlayer.addEventListener('timeupdate', () => {
       progressBar.value = Math.floor(audioPlayer.currentTime);
       updateTimeDisplay();
@@ -380,6 +415,22 @@
       const s = Math.floor(seconds % 60);
       return m + ":" + (s < 10 ? "0" + s : s);
     }
+
+    // Auto next play dan loop
+    audioPlayer.addEventListener('ended', () => {
+      if (loopEnabled) {
+        audioPlayer.currentTime = 0;
+        playAudio();
+      } else {
+        currentIndex++;
+        if (currentIndex >= files.length) {
+          currentIndex = 0;
+        }
+        loadSong(currentIndex);
+        highlightActive();
+        playAudio();
+      }
+    });
   </script>
 </body>
 </html>
