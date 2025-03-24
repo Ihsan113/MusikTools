@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modern Music Player</title>
+  <style>
+    /* Gaya modern dengan nuansa hitam elegan */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell;
+      background: #000;
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+      color: #fff;
+    }
+    .container {
+      max-width: 500px;
+      margin: auto;
+      background: rgba(28, 28, 30, 0.9);
+      border-radius: 18px;
+      padding: 24px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+    }
+    h1 {
+      text-align: center;
+      font-weight: 600;
+      margin: 0 0 24px 0;
+      font-size: 24px;
+      color: #fff;
+    }
+    .file-input {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    input[type="file"] {
+      background: rgba(72, 72, 74, 0.5);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 12px 24px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    input[type="file"]:hover {
+      background: rgba(72, 72, 74, 0.8);
+    }
+    .playlist {
+      list-style: none;
+      padding: 0;
+      max-height: 300px;
+      overflow-y: auto;
+      margin: 0;
+      border-radius: 12px;
+      background: rgba(44, 44, 46, 0.6);
+    }
+    .playlist::-webkit-scrollbar {
+      width: 6px;
+    }
+    .playlist::-webkit-scrollbar-thumb {
+      background: #636366;
+      border-radius: 3px;
+    }
+    .playlist li {
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      cursor: pointer;
+      font-size: 16px;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+    }
+    .playlist li:hover {
+      background: rgba(72, 72, 74, 0.4);
+    }
+    .active {
+      background: rgba(120, 120, 128, 0.2) !important;
+      position: relative;
+    }
+    .active::after {
+      content: "🎵";
+      margin-left: auto;
+      opacity: 0.8;
+    }
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 24px;
+    }
+    button {
+      padding: 14px 28px;
+      border: none;
+      border-radius: 12px;
+      background: rgba(120, 120, 128, 0.3);
+      color: #fff;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      backdrop-filter: blur(20px);
+    }
+    button:hover {
+      background: rgba(120, 120, 128, 0.5);
+      transform: scale(1.05);
+    }
+    button:active {
+      transform: scale(0.95);
+    }
+    /* Custom progress bar */
+    .progress-container {
+      margin-top: 24px;
+      display: flex;
+      align-items: center;
+    }
+    .progress-bar {
+      flex: 1;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      background: #333;
+      border-radius: 3px;
+      outline: none;
+      margin-right: 12px;
+    }
+    .progress-bar::-webkit-slider-thumb {
+      appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+      border: none;
+      margin-top: -3px;
+    }
+    .time-display {
+      font-size: 14px;
+      width: 80px;
+      text-align: right;
+    }
+    /* Canvas visualizer (selalu terlihat) */
+    #visualizer-canvas {
+      width: 100%;
+      height: 100px;
+      margin-top: 20px;
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.2);
+    }
+    /* Sembunyikan kontrol bawaan audio */
+    audio {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎧 Modern Player</h1>
+    <div class="file-input">
+      <!-- Pilih folder berisi file audio -->
+      <input type="file" id="file-selector" webkitdirectory multiple accept="audio/*">
+    </div>
+    <ul class="playlist" id="playlist"></ul>
+    <div class="controls">
+      <button id="play-btn">▶️ Play</button>
+      <button id="pause-btn">⏸ Pause</button>
+      <!-- Tombol Dolby untuk mengaktifkan efek -->
+      <button id="dolby-btn">Dolby Off</button>
+    </div>
+    <div class="progress-container">
+      <input type="range" id="progress-bar" class="progress-bar" min="0" max="100" value="0">
+      <div class="time-display" id="time-display">0:00 / 0:00</div>
+    </div>
+    <!-- Canvas untuk visualisasi (selalu muncul di kotak hitam) -->
+    <canvas id="visualizer-canvas"></canvas>
+    <audio id="audio-player"></audio>
+  </div>
+
+  <script>
+    let files = [];
+    let currentIndex = 0;
+    let dolbyEnabled = false;
+    let animationId;
+    const fileSelector = document.getElementById('file-selector');
+    const playlist = document.getElementById('playlist');
+    const audioPlayer = document.getElementById('audio-player');
+    const playBtn = document.getElementById('play-btn');
+    const pauseBtn = document.getElementById('pause-btn');
+    const dolbyBtn = document.getElementById('dolby-btn');
+    const progressBar = document.getElementById('progress-bar');
+    const timeDisplay = document.getElementById('time-display');
+    const canvas = document.getElementById('visualizer-canvas');
+    const canvasCtx = canvas.getContext('2d');
+
+    // Inisialisasi Web Audio API
+    let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let sourceNode = audioCtx.createMediaElementSource(audioPlayer);
+
+    // Node efek untuk Dolby dengan penyesuaian untuk audio yang HD, jelas, hidup, dan volume tinggi
+    let highShelfFilter = audioCtx.createBiquadFilter();
+    highShelfFilter.type = 'highshelf';
+    highShelfFilter.frequency.value = 3000;
+    highShelfFilter.gain.value = 18; // Gain high-end yang tinggi
+
+    let peakingFilter = audioCtx.createBiquadFilter();
+    peakingFilter.type = 'peaking';
+    peakingFilter.frequency.value = 1000;
+    peakingFilter.Q.value = 1;
+    peakingFilter.gain.value = 8; // Menonjolkan mid-range
+
+    // Filter tambahan untuk menambah detail dan kejernihan
+    let clarityFilter = audioCtx.createBiquadFilter();
+    clarityFilter.type = 'peaking';
+    clarityFilter.frequency.value = 2500;
+    clarityFilter.Q.value = 1;
+    clarityFilter.gain.value = 4; // Memberikan sentuhan ekstra pada high-mid
+
+    let lowShelfFilter = audioCtx.createBiquadFilter();
+    lowShelfFilter.type = 'lowshelf';
+    lowShelfFilter.frequency.value = 150;
+    lowShelfFilter.gain.value = 9; // Bass lebih menggelegar
+
+    let compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -30; // Lebih sensitif
+    compressor.knee.value = 30;
+    compressor.ratio.value = 18; // Punch yang kuat
+    compressor.attack.value = 0.001; // Respons sangat cepat
+    compressor.release.value = 0.2; // Pelepasan singkat
+
+    // Gain node untuk boosting volume output
+    let gainNode = audioCtx.createGain();
+    gainNode.gain.value = 1.8; // Volume ditingkatkan
+
+    // Analyser untuk visualisasi
+    let analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    let bufferLength = analyser.frequencyBinCount;
+    let dataArray = new Uint8Array(bufferLength);
+
+    // Untuk visualisasi, sambungkan source ke analyser dan destination secara default
+    sourceNode.connect(analyser);
+    analyser.connect(audioCtx.destination);
+
+    // Animasi visualizer yang berjalan terus-menerus
+    function animateVisualizer() {
+      animationId = requestAnimationFrame(animateVisualizer);
+      analyser.getByteFrequencyData(dataArray);
+      
+      // Bersihkan canvas dengan efek trail
+      canvasCtx.fillStyle = "rgba(0, 0, 0, 0.2)";
+      canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      const barWidth = canvas.width / bufferLength;
+      let x = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        let barHeight = dataArray[i] / 2;
+        let gradient = canvasCtx.createLinearGradient(x, canvas.height - barHeight, x, canvas.height);
+        gradient.addColorStop(0, "rgba(255,0,150,1)");
+        gradient.addColorStop(1, "rgba(255,0,150,0.2)");
+        canvasCtx.fillStyle = gradient;
+        canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+        x += barWidth + 1;
+      }
+    }
+    animateVisualizer();
+
+    // Sesuaikan ukuran canvas
+    function resizeCanvas() {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // Pengaturan file audio dan playlist
+    fileSelector.addEventListener('change', (event) => {
+      files = Array.from(event.target.files).filter(file => file.type.startsWith('audio/'));
+      displayPlaylist();
+      if (files.length > 0) {
+        currentIndex = 0;
+        loadSong(currentIndex);
+      }
+    });
+
+    function displayPlaylist() {
+      playlist.innerHTML = '';
+      files.forEach((file, index) => {
+        const li = document.createElement('li');
+        li.textContent = file.name;
+        li.addEventListener('click', () => {
+          currentIndex = index;
+          loadSong(currentIndex);
+          playAudio();
+          highlightActive();
+        });
+        playlist.appendChild(li);
+      });
+      highlightActive();
+    }
+
+    function highlightActive() {
+      const items = playlist.getElementsByTagName('li');
+      Array.from(items).forEach(item => item.classList.remove('active'));
+      if (items[currentIndex]) items[currentIndex].classList.add('active');
+    }
+
+    function loadSong(index) {
+      const file = files[index];
+      audioPlayer.src = URL.createObjectURL(file);
+      audioPlayer.addEventListener('loadedmetadata', () => {
+        progressBar.max = Math.floor(audioPlayer.duration);
+        updateTimeDisplay();
+      });
+    }
+
+    function playAudio() {
+      if (audioCtx.state === "suspended") {
+        audioCtx.resume();
+      }
+      audioPlayer.play();
+    }
+
+    playBtn.addEventListener('click', () => playAudio());
+    pauseBtn.addEventListener('click', () => audioPlayer.pause());
+
+    // Tombol Dolby untuk mengaktifkan efek audio tambahan
+    dolbyBtn.addEventListener('click', () => {
+      dolbyEnabled = !dolbyEnabled;
+      // Putuskan semua koneksi
+      sourceNode.disconnect();
+      highShelfFilter.disconnect();
+      peakingFilter.disconnect();
+      clarityFilter.disconnect();
+      lowShelfFilter.disconnect();
+      compressor.disconnect();
+      gainNode.disconnect();
+      analyser.disconnect();
+      
+      if (dolbyEnabled) {
+        // Rangkaian efek Dolby: source -> highShelf -> peaking -> clarityFilter -> lowShelf -> compressor -> gain -> analyser -> destination
+        sourceNode.connect(highShelfFilter);
+        highShelfFilter.connect(peakingFilter);
+        peakingFilter.connect(clarityFilter);
+        clarityFilter.connect(lowShelfFilter);
+        lowShelfFilter.connect(compressor);
+        compressor.connect(gainNode);
+        gainNode.connect(analyser);
+        analyser.connect(audioCtx.destination);
+        dolbyBtn.textContent = "Dolby On";
+      } else {
+        // Koneksi standar tanpa efek Dolby
+        sourceNode.connect(analyser);
+        analyser.connect(audioCtx.destination);
+        dolbyBtn.textContent = "Dolby Off";
+      }
+    });
+
+    audioPlayer.addEventListener('timeupdate', () => {
+      progressBar.value = Math.floor(audioPlayer.currentTime);
+      updateTimeDisplay();
+    });
+
+    progressBar.addEventListener('input', () => {
+      audioPlayer.currentTime = progressBar.value;
+      updateTimeDisplay();
+    });
+
+    function updateTimeDisplay() {
+      const current = formatTime(audioPlayer.currentTime);
+      const total = formatTime(audioPlayer.duration);
+      timeDisplay.textContent = `${current} / ${total}`;
+    }
+
+    function formatTime(seconds) {
+      if (isNaN(seconds)) return "0:00";
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return m + ":" + (s < 10 ? "0" + s : s);
+    }
+  </script>
+</body>
+</html>
